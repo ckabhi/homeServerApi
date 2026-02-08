@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id        String    @id @default(uuid(7))
+  email     String    @unique
+  password  String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  sessions  Session[]
+  todos     Todo[]
+
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(uuid(7))
+  sessionId    String
+  refreshToken String   @db.Text
+  deviceId     String?
+  ipAddress    String?
+  userAgent    String?
+  isActive     Boolean  @default(true)
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Todo {
+  id          String  @id @default(uuid(7))
+  title       String
+  description String? @db.Text
+  status      String  @default("new") // new, active, completed, blocked, backlog
+  order       Int     @default(0)
+
+  // Dates
+  startDate DateTime?
+  endDate   DateTime?
+
+  // Visuals
+
+  color       String?
+  // tags              Json? // POST-MIGRATION: Removed in favor of relation
+  // tags              Tag[] // Implicit relation removed
+  tags        TodoTag[]
+  isImportant Boolean   @default(false)
+
+  // Recurrence
+  isRecurring       Boolean @default(false)
+  recurrencePattern String?
+  parentId          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("todos")
+}
+
+model Tag {
+  id    String    @id @default(uuid(7))
+  name  String    @unique
+  todos TodoTag[]
+
+  @@map("tags")
+}
+
+model TodoTag {
+  todoId String
+  todo   Todo   @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  tagId  String
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([todoId, tagId])
+  @@map("todo_tags")
+}

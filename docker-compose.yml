@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: home_app_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: home_app
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: home_app_api
+    restart: always
+    environment:
+      DATABASE_URL: mysql://root:root@mysql:3306/home_app
+      JWT_SECRET: super-secret-key
+      JWT_EXPIRATION: 15m
+      JWT_REFRESH_SECRET: super-secret-refresh-key
+      JWT_REFRESH_EXPIRATION: 7d
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mysql
+    command: sh -c "npx prisma generate && npx prisma db push && npm run start:prod"
+
+volumes:
+  mysql_data:
