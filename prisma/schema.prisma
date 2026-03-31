@@ -22,9 +22,9 @@ model Session {
   id           String   @id @default(uuid(7))
   sessionId    String
   refreshToken String   @db.Text
-  deviceId     String?
+  deviceType   String?  @db.VarChar(10)
   ipAddress    String?
-  userAgent    String?
+  userAgent    String?  @db.VarChar(20)
   isActive     Boolean  @default(true)
   lastActiveAt DateTime @default(now())
   createdAt    DateTime @default(now())

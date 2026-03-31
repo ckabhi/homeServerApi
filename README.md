@@ -10,7 +10,7 @@ $ npm run start:dev
 - Then run the following command
 ```bash
 $ npx prisma generate
-$ npx prisma migrate dev --name init
+$ npx prisma migrate dev --name <migration-name>
 ```
 - Then run the following command to apply the migration
 ```bash

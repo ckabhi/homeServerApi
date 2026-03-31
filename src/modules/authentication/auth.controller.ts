@@ -1,9 +1,10 @@
-import { Controller, Post, Body, Req, Get, UseGuards, Ip, Delete, Query } from '@nestjs/common';
+import { Controller, Post, Body, Req, Get, UseGuards, Ip, Delete, Query, Res } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { SignupDto, LoginDto, RefreshTokenDto } from './dto/auth.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-
+import express from 'express';
+import ms, { StringValue } from 'ms';
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
@@ -15,9 +16,22 @@ export class AuthController {
   }
 
   @Post('login')
-  login(@Body() dto: LoginDto, @Req() req: any, @Ip() ip: string) {
+  login(@Body() dto: LoginDto, @Req() req: any, @Ip() ip: string, @Res({ passthrough: true }) res:express.Response) {
     const userAgent = req.headers['user-agent'] || 'unknown';
-    return this.authService.login(dto, userAgent, ip);
+  
+  return this.authService.login(dto, userAgent, ip).then(({email, tokens, sessionId})=>{
+    res.cookie(
+      'refreshToken', tokens.refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    maxAge: ms((process.env.JWT_REFRESH_EXPIRATION || '7d') as StringValue),
+  }
+    );
+      return {email, tokens: {accessToken: tokens.accessToken}, sessionId};
+
+  })
+  
   }
 
   @Post('refresh')

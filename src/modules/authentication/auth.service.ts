@@ -5,6 +5,7 @@ import { SignupDto, LoginDto } from './dto/auth.dto';
 import * as bcrypt from 'bcrypt';
 import { EventsGateway } from '../events/events.gateway';
 import { v7 as uuidv7 } from 'uuid';
+import { parseDeviceInfo } from './helpers/parseDeviceInfo.helper';
 
 @Injectable()
 export class AuthService {
@@ -30,7 +31,7 @@ export class AuthService {
     return {email:user.email, tokens}
   }
 
-  async login(dto: LoginDto, userAgent: string, ipAddress: string) {
+  async login(dto: LoginDto, userAgent: string, ipAddress: string): Promise<{email:string, tokens:{accessToken:string, refreshToken:string}, sessionId:string}> {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
@@ -38,12 +39,13 @@ export class AuthService {
     if (!isMatch) throw new UnauthorizedException('Invalid credentials');
 
     const {refreshToken, accessToken, sessionId} = await this.generateTokens(user.id, user.email, undefined);
-    await this.createSession(user.id, refreshToken, userAgent, ipAddress, sessionId);
+    const deviceInfo = parseDeviceInfo(userAgent);
+    await this.createSession(user.id, refreshToken, deviceInfo.name, deviceInfo.deviceType, ipAddress, sessionId);
 
 
     // Notify other sessions potentially
     this.eventsGateway.emitToUser(user.id, 'auth.new_device_login', { 
-        device: userAgent,
+        device: deviceInfo.name,
         ip: ipAddress,
         timestamp: new Date()
     });
@@ -105,12 +107,13 @@ const [accessToken, refreshToken] = await Promise.all([
     
   }
 
-  private async createSession(userId: string, refreshToken: string, userAgent: string, ipAddress: string, sessionId: string) {
+  private async createSession(userId: string, refreshToken: string, userAgent: string, deviceType: string, ipAddress: string, sessionId: string) {
     const sessionData = await this.prisma.session.create({
       data: {
         userId,
         refreshToken,
         userAgent,
+        deviceType,
         ipAddress,
         sessionId,  
       },  
@@ -119,7 +122,7 @@ const [accessToken, refreshToken] = await Promise.all([
   }
   
   async getSessions(userId: string) {
-    return this.prisma.session.findMany({ where: { userId, isActive: true } });
+    return this.prisma.session.findMany({ where: { userId, isActive: true }, select:{sessionId: true, userAgent: true, createdAt: true, lastActiveAt: true} });
   }
 
   async logout(userId: string,currentSessionId: string, sessionId?: string) {
