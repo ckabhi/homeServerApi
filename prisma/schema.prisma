@@ -83,3 +83,128 @@ model TodoTag {
   @@id([todoId, tagId])
   @@map("todo_tags")
 }
+
+// =======================
+// FILE UPLOAD MODULE
+// =======================
+
+model FileUploadSession {
+  id           String    @id @default(uuid(7))
+  userId       String    // Value reference only, no @relation
+  presignedUrl String    @db.Text
+  objectKey    String
+  bucketName   String
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  isUsed       Boolean   @default(false)
+  isRevoked    Boolean   @default(false)
+  completedAt  DateTime?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("file_upload_sessions")
+}
+
+model FileMetadata {
+  id          String   @id @default(uuid(7))
+  userId      String   // Value reference only, no @relation
+  fileName    String
+  objectKey   String   @unique
+  bucketName  String
+  fileSize    BigInt
+  mimeType    String
+  folderPath  String   @default("")
+  parentFolderId String?
+  isSharedFile Boolean  @default(false)
+  isDeleted   Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  imageMetadata FileImageMetadata?
+
+  @@index([userId, folderPath])
+  @@index([isSharedFile])
+  @@index([parentFolderId])
+  @@map("file_metadata")
+}
+
+model FolderPermission {
+  id          String   @id @default(uuid(7))
+  userId      String   // Value reference only, no @relation
+  folderName  String
+  folderPath  String
+  parentPath  String   @default("")
+  parentFolderId String?
+  isShared    Boolean  @default(false)
+  isDeleted   Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Self-relation for hierarchy
+  parentFolder    FolderPermission?  @relation("FolderHierarchy", fields: [parentFolderId], references: [id], onDelete: SetNull)
+  childFolders    FolderPermission[] @relation("FolderHierarchy")
+
+  @@unique([userId, folderPath, isShared])
+  @@index([userId])
+  @@index([parentFolderId])
+  @@index([isShared])
+  @@map("folder_permissions")
+}
+
+model FileChunkUpload {
+  uploadId       String    @id
+  userId         String    // Value reference only, no @relation
+  objectKey      String
+  totalChunks    Int
+  uploadedChunks Int       @default(0)
+  fileSize       BigInt
+  mimeType       String
+  status         String    @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, FAILED, EXPIRED
+  expiresAt      DateTime
+  completedAt    DateTime?
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("file_chunk_uploads")
+}
+
+model FileImageMetadata {
+  id                 String   @id @default(uuid(7))
+  fileMetadataId     String   @unique
+  thumbnailObjectKey String?
+  previewObjectKey   String?
+  width              Int?
+  height             Int?
+  orientation        Int?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  fileMetadata       FileMetadata @relation(fields: [fileMetadataId], references: [id], onDelete: Cascade)
+
+  @@map("file_image_metadata")
+}
+
+model FileAuditLog {
+  id         String   @id @default(uuid(7))
+  userId     String   // Value reference only, no @relation
+  operation  String   // UPLOAD, DOWNLOAD, DELETE, RENAME, CREATE_FOLDER
+  objectKey  String?
+  ipAddress  String?
+  userAgent  String?
+  status     String   // SUCCESS, FAILED
+  details    String?  @db.Text
+
+  createdAt  DateTime @default(now())
+
+  @@index([userId, operation, createdAt])
+  @@map("file_audit_logs")
+}
+

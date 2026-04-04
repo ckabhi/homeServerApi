@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { SignupDto, LoginDto } from './dto/auth.dto';
@@ -91,7 +95,18 @@ export class AuthService {
   }
 
   async validateUser(userId: string) {
-    return this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    return Boolean(user);
+  }
+
+  async validateUserNotDeleted(userId: string): Promise<void> {
+    const isValidUser = await this.validateUser(userId);
+    if (!isValidUser) {
+      throw new UnauthorizedException('User not found');
+    }
   }
 
   // Helper methods

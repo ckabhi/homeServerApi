@@ -12,5 +12,21 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
 
+  minio:
+    image: ghcr.io/ckabhi/custom-minio:amd64-latest
+    container_name: minio-server
+    restart: always
+    ports:
+      - '9000:9000' # API Access
+      - '9001:9001' # Web Console Access
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+    volumes:
+      # Maps your internal SSD folder to the container's data folder
+      - /var/lib/minio:/data
+    # This command tells MinIO to use the internal /data folder for storage
+    command: server /data --console-address ":9001"
+
 volumes:
   mysql_data:

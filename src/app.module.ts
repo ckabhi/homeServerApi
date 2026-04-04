@@ -7,9 +7,11 @@ import { AuthModule } from './modules/authentication/auth.module';
 import { TodosModule } from './modules/todos/todos.module';
 import { EventsModule } from './modules/events/events.module';
 import { TagsModule } from './modules/tags/tags.module';
+import { FilesModule } from './modules/files/files.module';
+import { FoldersModule } from './modules/folders/folders.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, TodosModule, EventsModule, TagsModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, TodosModule, EventsModule, TagsModule, FilesModule, FoldersModule],
   controllers: [AppController],
   providers: [AppService],
 })
