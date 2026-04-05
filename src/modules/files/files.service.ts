@@ -19,6 +19,7 @@ import {
   FolderNotFoundError,
 } from './exceptions/file-errors';
 import { PathResolverHelper } from './helpers/path-resolver.helper';
+import { DuplicateNameHelper } from './helpers/duplicate-name.helper';
 
 @Injectable()
 export class FilesService {
@@ -29,6 +30,7 @@ export class FilesService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
+    private readonly duplicateNameHelper: DuplicateNameHelper,
   ) {}
 
   /**
@@ -43,7 +45,11 @@ export class FilesService {
 
   private normalizeFolderPath(folderPath?: string): string {
     return folderPath
-      ? folderPath.trim().replace(/\\/g, '/').replace(/\/{2,}/g, '/').replace(/^\/+|\/+$/g, '')
+      ? folderPath
+          .trim()
+          .replace(/\\/g, '/')
+          .replace(/\/{2,}/g, '/')
+          .replace(/^\/+|\/+$/g, '')
       : '';
   }
 
@@ -112,6 +118,34 @@ export class FilesService {
     return resolvedPath;
   }
 
+  private async resolveParentFolderId(
+    userId: string,
+    folderPath: string,
+    isShared: boolean,
+  ): Promise<string | null> {
+    if (!folderPath) {
+      return null;
+    }
+
+    const folder = await this.prisma.folderPermission.findFirst({
+      where: isShared
+        ? {
+            isShared: true,
+            folderPath,
+            isDeleted: false,
+          }
+        : {
+            userId,
+            isShared: false,
+            folderPath,
+            isDeleted: false,
+          },
+      select: { id: true },
+    });
+
+    return folder?.id ?? null;
+  }
+
   /**
    * Generate presigned upload URL with hierarchy support
    */
@@ -133,12 +167,29 @@ export class FilesService {
       isShared,
     );
 
-    // Step 3: Resolve complete object key
-    const objectKey = PathResolverHelper.resolveObjectKey(
+    const parentFolderId = dto.parentFolderId
+      ? dto.parentFolderId
+      : await this.resolveParentFolderId(userId, resolvedFolderPath, isShared);
+
+    // Step 3: Resolve display and system names
+    const displayName = await this.duplicateNameHelper.generateUniqueDisplayName(
       userId,
-      resolvedFolderPath,
       dto.fileName,
+      parentFolderId,
       isShared,
+    );
+    const systemFileName = PathResolverHelper.generateSystemFileName(
+      dto.fileName,
+    );
+    const objectKey = PathResolverHelper.resolveObjectKeyFlat(
+      userId,
+      systemFileName,
+      isShared,
+    );
+    const dirPath = PathResolverHelper.constructDirPath(
+      isShared ? 'shared' : userId,
+      resolvedFolderPath,
+      displayName,
     );
 
     // Step 4: Generate presigned URL
@@ -156,6 +207,11 @@ export class FilesService {
         userId,
         presignedUrl: url,
         objectKey,
+        displayName,
+        systemFileName,
+        folderPath: resolvedFolderPath,
+        parentFolderId,
+        isSharedFile: isShared,
         bucketName,
         ipAddress,
         userAgent,
@@ -179,7 +235,11 @@ export class FilesService {
     return {
       uploadUrl: url,
       objectKey,
+      displayName,
+      systemFileName,
+      dirPath,
       folderPath: resolvedFolderPath,
+      parentFolderId,
       uploadSessionId: session.id,
       expiresAt: session.expiresAt.toISOString(),
       maxChunkSize: 5242880, // 5MB
@@ -224,35 +284,26 @@ export class FilesService {
 
     const objectStat = await this.minioService.statObject(session.objectKey);
     const pathSegments = session.objectKey.split('/');
-    const fileName = pathSegments[pathSegments.length - 1];
-    const folderPath = PathResolverHelper.extractFolderPath(session.objectKey);
-    const isSharedFile = PathResolverHelper.isSharedFile(session.objectKey);
-
-    let parentFolderId: string | null = null;
-    if (folderPath) {
-      const parentFolder = await this.prisma.folderPermission.findFirst({
-        where: isSharedFile
-          ? {
-              isShared: true,
-              folderPath,
-              isDeleted: false,
-            }
-          : {
-              userId,
-              isShared: false,
-              folderPath,
-              isDeleted: false,
-            },
-        select: { id: true },
-      });
-      parentFolderId = parentFolder?.id || null;
-    }
+    const fallbackFileName = pathSegments[pathSegments.length - 1];
+    const isSharedFile = session.isSharedFile;
+    const folderPath = session.folderPath || '';
+    const parentFolderId = session.parentFolderId || null;
+    const systemFileName =
+      session.systemFileName ||
+      dto.systemFileName ||
+      fallbackFileName;
+    const displayName =
+      session.displayName ||
+      dto.displayName ||
+      fallbackFileName;
 
     const metadata = await this.prisma.fileMetadata.upsert({
       where: { objectKey: session.objectKey },
       create: {
         userId,
-        fileName,
+        fileName: displayName,
+        displayName,
+        systemFileName,
         objectKey: session.objectKey,
         bucketName: session.bucketName,
         fileSize: BigInt(objectStat.size),
@@ -264,7 +315,9 @@ export class FilesService {
       },
       update: {
         userId,
-        fileName,
+        fileName: displayName,
+        displayName,
+        systemFileName,
         bucketName: session.bucketName,
         fileSize: BigInt(objectStat.size),
         mimeType: objectStat.contentType || 'application/octet-stream',
@@ -300,6 +353,8 @@ export class FilesService {
     return {
       fileId: metadata.id,
       fileName: metadata.fileName,
+      displayName: metadata.displayName,
+      systemFileName: metadata.systemFileName,
       objectKey: metadata.objectKey,
       folderPath: metadata.folderPath,
       isSharedFile: metadata.isSharedFile,
@@ -337,9 +392,9 @@ export class FilesService {
 
     // Step 4: Generate presigned GET URL
     const expiresIn = dto.expiresIn || 3600; // 1 hour default
-    const url = await this.minioService.generatePresignedUrl(
-      'GET',
-      dto.objectKey,
+    const url = await this.minioService.generatePresignedDownloadUrl(
+      file.objectKey,
+      file.displayName,
       expiresIn,
     );
 
@@ -357,6 +412,7 @@ export class FilesService {
 
     return {
       downloadUrl: url,
+      displayName: file.displayName,
       expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
       sessionId: uuidv7(),
     };
@@ -391,14 +447,16 @@ export class FilesService {
       take: limit,
       select: {
         id: true,
-        fileName: true,
+        displayName: true,
         objectKey: true,
+        systemFileName: true,
         fileSize: true,
         mimeType: true,
         createdAt: true,
         updatedAt: true,
         imageMetadata: true,
       },
+      orderBy: { createdAt: 'desc' },
     });
     const serializedFiles = files.map((file) => ({
       ...file,
@@ -470,6 +528,52 @@ export class FilesService {
     }
 
     return this.listFolderContents(userId, folder.folderPath, dto);
+  }
+
+  async renameFile(fileId: string, userId: string, newDisplayName: string) {
+    await this.validateUserExists(userId);
+
+    const file = await this.prisma.fileMetadata.findUnique({
+      where: { id: fileId },
+    });
+
+    if (!file || file.isDeleted) {
+      throw new FileNotFoundError('File not found');
+    }
+
+    if (!file.isSharedFile && file.userId !== userId) {
+      throw new UnauthorizedAccessError('Unauthorized to rename this file');
+    }
+
+    const uniqueDisplayName =
+      await this.duplicateNameHelper.generateUniqueDisplayName(
+        file.userId,
+        newDisplayName,
+        file.parentFolderId,
+        file.isSharedFile,
+        file.id,
+      );
+
+    const updated = await this.prisma.fileMetadata.update({
+      where: { id: fileId },
+      data: {
+        displayName: uniqueDisplayName,
+        fileName: uniqueDisplayName,
+        updatedAt: new Date(),
+      },
+    });
+
+    await this.prisma.fileAuditLog.create({
+      data: {
+        userId,
+        operation: 'RENAME',
+        objectKey: updated.objectKey,
+        status: 'SUCCESS',
+        details: `File display name updated to ${uniqueDisplayName}`,
+      },
+    });
+
+    return updated;
   }
 
   /**

@@ -7,7 +7,7 @@ import { MinIOConnectionError } from './exceptions/file-errors';
 export class MinioService implements OnModuleInit {
   private minioClient!: Minio.Client;
   private readonly logger = new Logger(MinioService.name);
-  private readonly defaultBucket = 'app-bucket';
+  private readonly defaultBucket = 'app-bucket-xtvnlqt';
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -74,6 +74,34 @@ export class MinioService implements OnModuleInit {
     }
   }
 
+  async generatePresignedDownloadUrl(
+    objectKey: string,
+    displayName: string,
+    expirySeconds: number = 3600,
+  ): Promise<string> {
+    try {
+      const requestParams = {
+        'response-content-disposition': `attachment; filename="${this.escapeFileName(displayName)}"`,
+        'response-content-type': 'application/octet-stream',
+      };
+
+      return await this.minioClient.presignedGetObject(
+        this.defaultBucket,
+        objectKey,
+        expirySeconds,
+        requestParams,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to generate presigned download URL for ${objectKey}`,
+        error,
+      );
+      throw new MinIOConnectionError(
+        'Failed to generate presigned download URL',
+      );
+    }
+  }
+
   async deleteObject(objectKey: string): Promise<void> {
     try {
       await this.minioClient.removeObject(this.defaultBucket, objectKey);
@@ -118,5 +146,9 @@ export class MinioService implements OnModuleInit {
     } catch {
       throw new MinIOConnectionError('Failed to stat object from storage');
     }
+  }
+
+  private escapeFileName(fileName: string): string {
+    return fileName.replace(/"/g, '\\"');
   }
 }

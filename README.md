@@ -20,3 +20,23 @@ $ npx prisma migrate deploy
 ```bash
 $ npx prisma generate
 ```
+
+## Flat storage API updates
+
+- `PATCH /files/:fileId/rename`
+  - Updates file `displayName` only.
+  - Storage `objectKey` remains unchanged.
+- `PATCH /folders/:folderId/rename`
+  - Updates folder `folderName` only.
+  - No file move/copy in storage.
+- `POST /files/download-url`
+  - Uses metadata `objectKey` for file lookup.
+  - Signed URL sets download filename from `displayName`.
+
+## Flat storage migration
+
+```bash
+npx prisma migrate deploy
+npx prisma generate
+npx ts-node scripts/migrate-flat-storage.ts
+```

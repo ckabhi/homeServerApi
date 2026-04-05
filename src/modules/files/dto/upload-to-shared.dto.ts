@@ -12,7 +12,7 @@ export class UploadToSharedDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)
-  fileName: string;
+  fileName!: string;
 
   @IsOptional()
   @IsString()
@@ -21,13 +21,13 @@ export class UploadToSharedDto {
 
   @IsString()
   @IsNotEmpty()
-  mimeType: string;
+  mimeType!: string;
 
   @IsNumber()
   @IsNotEmpty()
   @Min(1)
   @Max(5368709120, { message: 'File size cannot exceed 5GB' })
-  fileSize: number;
+  fileSize!: number;
 
   @IsOptional()
   @IsNumber()

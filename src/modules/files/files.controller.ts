@@ -7,6 +7,7 @@ import {
   Get,
   Param,
   Query,
+  Patch,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
@@ -16,6 +17,7 @@ import { GenerateUploadUrlDto } from './dto/generate-upload-url.dto';
 import { GenerateDownloadUrlDto } from './dto/generate-download-url.dto';
 import { ListFolderContentsDto } from './dto/list-folder-contents.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
+import { RenameFileDto } from './dto/rename-file.dto';
 
 @Controller('files')
 @UseGuards(JwtAuthGuard)
@@ -99,5 +101,18 @@ export class FilesController {
     @Req() req: Request & { user?: { id?: string; userId?: string } },
   ) {
     return this.filesService.getBucketTree(this.getUserId(req));
+  }
+
+  @Patch(':fileId/rename')
+  async renameFile(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Param('fileId') fileId: string,
+    @Body() dto: RenameFileDto,
+  ) {
+    return this.filesService.renameFile(
+      fileId,
+      this.getUserId(req),
+      dto.newDisplayName,
+    );
   }
 }

@@ -93,6 +93,11 @@ model FileUploadSession {
   userId       String    // Value reference only, no @relation
   presignedUrl String    @db.Text
   objectKey    String
+  displayName  String?
+  systemFileName String?
+  folderPath   String?
+  parentFolderId String?
+  isSharedFile Boolean   @default(false)
   bucketName   String
   ipAddress    String?
   userAgent    String?
@@ -112,6 +117,8 @@ model FileMetadata {
   id          String   @id @default(uuid(7))
   userId      String   // Value reference only, no @relation
   fileName    String
+  displayName String
+  systemFileName String
   objectKey   String   @unique
   bucketName  String
   fileSize    BigInt
@@ -126,9 +133,10 @@ model FileMetadata {
 
   imageMetadata FileImageMetadata?
 
-  @@index([userId, folderPath])
-  @@index([isSharedFile])
-  @@index([parentFolderId])
+  @@index([userId, parentFolderId])
+  @@index([userId, isSharedFile])
+  @@index([isSharedFile, parentFolderId])
+  @@index([displayName])
   @@map("file_metadata")
 }
 
@@ -207,4 +215,3 @@ model FileAuditLog {
   @@index([userId, operation, createdAt])
   @@map("file_audit_logs")
 }
-

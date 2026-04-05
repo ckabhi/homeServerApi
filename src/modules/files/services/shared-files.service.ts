@@ -12,6 +12,7 @@ import {
   InvalidFolderPathError,
 } from '../exceptions/file-errors';
 import { PathResolverHelper } from '../helpers/path-resolver.helper';
+import { DuplicateNameHelper } from '../helpers/duplicate-name.helper';
 
 interface SharedTreeNode {
   id: string;
@@ -24,6 +25,15 @@ interface SharedTreeNode {
 @Injectable()
 export class SharedFilesService {
   private readonly logger = new Logger(SharedFilesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly minioService: MinioService,
+    private readonly filesService: FilesService,
+    private readonly duplicateNameHelper: DuplicateNameHelper,
+    @Inject(forwardRef(() => AuthService))
+    private readonly authService: AuthService,
+  ) {}
 
   private buildSharedTree(
     items: Array<{
@@ -49,14 +59,6 @@ export class SharedFilesService {
         children: this.buildSharedTree(items, countMap, item.id),
       }));
   }
-
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly minioService: MinioService,
-    private readonly filesService: FilesService,
-    @Inject(forwardRef(() => AuthService))
-    private readonly authService: AuthService,
-  ) {}
 
   /**
    * Validate user exists
@@ -89,6 +91,7 @@ export class SharedFilesService {
       : '';
     PathResolverHelper.validateFolderPath(resolvedFolderPath);
 
+    let parentFolderId: string | null = null;
     if (resolvedFolderPath) {
       const folder = await this.prisma.folderPermission.findFirst({
         where: {
@@ -101,14 +104,27 @@ export class SharedFilesService {
       if (!folder) {
         throw new FolderNotFoundError('Target shared folder does not exist');
       }
+      parentFolderId = folder.id;
     }
 
-    // Step 3: Resolve object key (shared prefix)
-    const objectKey = PathResolverHelper.resolveObjectKey(
+    const displayName = await this.duplicateNameHelper.generateUniqueDisplayName(
+      userId,
+      dto.fileName,
+      parentFolderId,
+      true,
+    );
+    const systemFileName = PathResolverHelper.generateSystemFileName(
+      dto.fileName,
+    );
+    const objectKey = PathResolverHelper.resolveObjectKeyFlat(
+      userId,
+      systemFileName,
+      true,
+    );
+    const dirPath = PathResolverHelper.constructDirPath(
       'shared',
       resolvedFolderPath,
-      dto.fileName,
-      true,
+      displayName,
     );
 
     // Step 4: Generate presigned URL
@@ -125,6 +141,11 @@ export class SharedFilesService {
         userId,
         presignedUrl: url,
         objectKey,
+        displayName,
+        systemFileName,
+        folderPath: resolvedFolderPath,
+        parentFolderId,
+        isSharedFile: true,
         bucketName: this.minioService.getBucketName(),
         ipAddress,
         expiresAt: new Date(Date.now() + expiresIn * 1000),
@@ -146,6 +167,11 @@ export class SharedFilesService {
     return {
       uploadUrl: url,
       objectKey,
+      displayName,
+      systemFileName,
+      dirPath,
+      folderPath: resolvedFolderPath,
+      parentFolderId,
       uploadSessionId: session.id,
       expiresAt: session.expiresAt.toISOString(),
     };
@@ -189,8 +215,9 @@ export class SharedFilesService {
       },
       select: {
         id: true,
-        fileName: true,
+        displayName: true,
         objectKey: true,
+        systemFileName: true,
         fileSize: true,
         mimeType: true,
         createdAt: true,
@@ -374,9 +401,9 @@ export class SharedFilesService {
 
     // Step 2: Generate presigned GET URL
     const expiresIn = 3600; // 1 hour
-    const url = await this.minioService.generatePresignedUrl(
-      'GET',
+    const url = await this.minioService.generatePresignedDownloadUrl(
       objectKey,
+      file.displayName,
       expiresIn,
     );
 
@@ -395,7 +422,7 @@ export class SharedFilesService {
     return {
       downloadUrl: url,
       expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
-      fileName: file.fileName,
+      displayName: file.displayName,
     };
   }
 

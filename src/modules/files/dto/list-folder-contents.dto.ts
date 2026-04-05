@@ -20,26 +20,30 @@ export class ListFolderContentsDto {
   limit?: number;
 }
 
+export class FileItemDto {
+  id!: string;
+  displayName!: string;
+  objectKey!: string;
+  systemFileName!: string;
+  fileSize!: string;
+  mimeType!: string;
+  createdAt!: Date;
+  updatedAt!: Date;
+}
+
+export class FolderItemDto {
+  id!: string;
+  folderName!: string;
+  folderPath!: string;
+  createdAt!: Date;
+  updatedAt!: Date;
+}
+
 export class ListFolderContentsResponseDto {
-  files: Array<{
-    id: string;
-    fileName: string;
-    objectKey: string;
-    fileSize: number;
-    mimeType: string;
-    createdAt: Date;
-    updatedAt: Date;
-  }>;
+  files!: FileItemDto[];
+  folders!: FolderItemDto[];
 
-  folders: Array<{
-    id: string;
-    folderName: string;
-    folderPath: string;
-    createdAt: Date;
-    updatedAt: Date;
-  }>;
-
-  pagination: {
+  pagination!: {
     total: number;
     offset: number;
     limit: number;

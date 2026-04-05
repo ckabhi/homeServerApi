@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 
 /**
  * Path Resolution Helper - Handles folder path and object key generation
@@ -28,21 +29,110 @@ export class PathResolverHelper {
     folderPath: string,
     fileName: string,
     isShared: boolean = false,
-  ): string {
+  ): { objectKey: string; dirPath: string } {
     const cleanFolderPath = folderPath
       ? this.normalizeFolderPath(folderPath)
       : '';
     const cleanFileName = fileName.trim().replace(/^\/+|\/+$/g, '');
 
     if (isShared) {
-      return cleanFolderPath
+      const sharedDirPath = cleanFolderPath
         ? `shared/${cleanFolderPath}/${cleanFileName}`
         : `shared/${cleanFileName}`;
+      return { objectKey: `shared/${cleanFileName}`, dirPath: sharedDirPath };
     }
 
-    return cleanFolderPath
+    const privateDirPath = cleanFolderPath
       ? `${userId}/${cleanFolderPath}/${cleanFileName}`
       : `${userId}/${cleanFileName}`;
+    return { objectKey: `${userId}/${cleanFileName}`, dirPath: privateDirPath };
+  }
+
+  /**
+   * Generate system filename for storage (UUID + extension)
+   * @param originalFileName Original filename provided by user
+   * @returns System filename (e.g., "550e8400-e29b-41d4-a716-446655440000.pdf")
+   */
+  static generateSystemFileName(originalFileName: string): string {
+    const extension = this.extractExtension(originalFileName);
+    return `${this.generateUUID()}${extension}`;
+  }
+
+  /**
+   * Extract file extension from filename
+   * @param fileName Filename to extract extension from
+   * @returns Extension with dot (e.g., ".pdf") or empty string
+   */
+  static extractExtension(fileName: string): string {
+    const normalizedFileName = fileName.trim();
+    const lastDot = normalizedFileName.lastIndexOf('.');
+    if (lastDot <= 0 || lastDot === normalizedFileName.length - 1) {
+      return '';
+    }
+    return normalizedFileName.substring(lastDot);
+  }
+
+  /**
+   * Generate UUID v7 for timestamp-based ordering
+   * @returns UUID v7 string
+   */
+  static generateUUID(): string {
+    const timestamp = BigInt(Date.now());
+    const random = randomBytes(10);
+
+    const timeHex = timestamp.toString(16).padStart(12, '0');
+    const randHex = random.toString('hex');
+
+    const part1 = timeHex.slice(0, 8);
+    const part2 = timeHex.slice(8, 12);
+    const part3 = `7${randHex.slice(0, 3)}`;
+    const variantNibble = (parseInt(randHex.slice(3, 4), 16) & 0x3) | 0x8;
+    const part4 = `${variantNibble.toString(16)}${randHex.slice(4, 7)}`;
+    const part5 = randHex.slice(7, 19);
+
+    return `${part1}-${part2}-${part3}-${part4}-${part5}`;
+  }
+
+  /**
+   * Resolve object key for flat storage structure
+   * Pattern: <userID>/<systemFileName> or shared/<systemFileName>
+   * @param userId User ID
+   * @param systemFileName System generated filename
+   * @param isShared Whether file is in shared folder
+   * @returns Object key for MinIO storage
+   */
+  static resolveObjectKeyFlat(
+    userId: string,
+    systemFileName: string,
+    isShared: boolean = false,
+  ): string {
+    if (isShared) {
+      return `shared/${systemFileName}`;
+    }
+
+    return `${userId}/${systemFileName}`;
+  }
+
+  /**
+   * Construct dirPath for API responses
+   * Pattern: userId/folderPath/displayName
+   * @param userId User ID or "shared"
+   * @param folderPath Logical folder path from database
+   * @param displayName User-facing filename
+   * @returns Full path for display and audit
+   */
+  static constructDirPath(
+    userId: string,
+    folderPath: string = '',
+    displayName: string,
+  ): string {
+    const cleanFolderPath = folderPath
+      ? this.normalizeFolderPath(folderPath)
+      : '';
+    const cleanDisplayName = displayName.trim().replace(/^\/+|\/+$/g, '');
+    return cleanFolderPath
+      ? `${userId}/${cleanFolderPath}/${cleanDisplayName}`
+      : `${userId}/${cleanDisplayName}`;
   }
 
   /**

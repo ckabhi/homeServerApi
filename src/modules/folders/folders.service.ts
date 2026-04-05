@@ -6,6 +6,7 @@ import {
   FolderNotFoundError,
   FolderAlreadyExistsError,
   InvalidFolderPathError,
+  UnauthorizedAccessError,
 } from '../files/exceptions/file-errors';
 import { PathResolverHelper } from '../files/helpers/path-resolver.helper';
 
@@ -127,8 +128,12 @@ export class FoldersService {
   async renameFolder(userId: string, folderId: string, dto: RenameFolderDto) {
     const folder = await this.prisma.folderPermission.findUnique({ where: { id: folderId } });
 
-    if (!folder || folder.userId !== userId || folder.isShared || folder.isDeleted) {
+    if (!folder || folder.isDeleted) {
       throw new FolderNotFoundError('Folder not found');
+    }
+
+    if (folder.userId !== userId && !folder.isShared) {
+      throw new UnauthorizedAccessError('Unauthorized to rename this folder');
     }
 
     const folderName = PathResolverHelper.sanitizeFolderName(dto.newFolderName);
@@ -136,12 +141,15 @@ export class FoldersService {
       throw new InvalidFolderPathError('Invalid folder name');
     }
 
-    const newFolderPath = folder.parentPath
-      ? `${folder.parentPath}/${folderName}`
-      : folderName;
-
     const existing = await this.prisma.folderPermission.findFirst({
-      where: { userId, folderPath: newFolderPath, isShared: false, isDeleted: false },
+      where: {
+        userId: folder.userId,
+        folderName,
+        parentFolderId: folder.parentFolderId,
+        isShared: folder.isShared,
+        isDeleted: false,
+        NOT: { id: folder.id },
+      },
     });
     if (existing) {
       throw new FolderAlreadyExistsError('New folder name already exists');
@@ -151,52 +159,20 @@ export class FoldersService {
       where: { id: folder.id },
       data: {
         folderName,
-        folderPath: newFolderPath,
         updatedAt: new Date(),
       },
     });
 
-    const nestedFolders = await this.prisma.folderPermission.findMany({
-      where: {
+    await this.prisma.fileAuditLog.create({
+      data: {
         userId,
-        isShared: false,
-        isDeleted: false,
-        folderPath: { startsWith: `${folder.folderPath}/` },
+        operation: 'RENAME',
+        objectKey: folder.folderPath,
+        status: 'SUCCESS',
+        details: `Folder renamed from "${folder.folderName}" to "${folderName}"`,
       },
     });
 
-    for (const nested of nestedFolders) {
-      const relativePath = nested.folderPath.slice(folder.folderPath.length + 1);
-      const nestedParentPath = nested.parentPath.startsWith(folder.folderPath)
-        ? nested.parentPath.replace(folder.folderPath, newFolderPath)
-        : nested.parentPath;
-
-      await this.prisma.folderPermission.update({
-        where: { id: nested.id },
-        data: {
-          folderPath: `${newFolderPath}/${relativePath}`,
-          parentPath: nestedParentPath,
-          updatedAt: new Date(),
-        },
-      });
-    }
-
-    await this.prisma.fileMetadata.updateMany({
-      where: {
-        userId,
-        isSharedFile: false,
-        isDeleted: false,
-        folderPath: { startsWith: folder.folderPath },
-      },
-      data: { updatedAt: new Date() },
-    });
-
-    return {
-      folderId: updated.id,
-      oldFolderPath: folder.folderPath,
-      newFolderPath: updated.folderPath,
-      renamedAt: updated.updatedAt,
-      filesUpdated: nestedFolders.length,
-    };
+    return updated;
   }
 }
