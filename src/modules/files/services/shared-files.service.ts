@@ -13,6 +13,7 @@ import {
 } from '../exceptions/file-errors';
 import { PathResolverHelper } from '../helpers/path-resolver.helper';
 import { DuplicateNameHelper } from '../helpers/duplicate-name.helper';
+import { RenameFolderDto } from '../dto/rename-folder.dto';
 
 interface SharedTreeNode {
   id: string;
@@ -107,12 +108,13 @@ export class SharedFilesService {
       parentFolderId = folder.id;
     }
 
-    const displayName = await this.duplicateNameHelper.generateUniqueDisplayName(
-      userId,
-      dto.fileName,
-      parentFolderId,
-      true,
-    );
+    const displayName =
+      await this.duplicateNameHelper.generateUniqueDisplayName(
+        userId,
+        dto.fileName,
+        parentFolderId,
+        true,
+      );
     const systemFileName = PathResolverHelper.generateSystemFileName(
       dto.fileName,
     );
@@ -334,6 +336,16 @@ export class SharedFilesService {
     });
 
     // Step 5: Log creation
+    await this.prisma.fileAuditLog.create({
+      data: {
+        userId: 'SYSTEM',
+        operation: 'CREATE',
+        objectKey: folder.id,
+        status: 'SUCCESS',
+        details: `Shared folder created at path: ${folderPath}`,
+      },
+    });
+
     this.logger.log(`Shared folder created: ${folderPath}`);
 
     return {
@@ -342,6 +354,66 @@ export class SharedFilesService {
       folderPath: folder.folderPath,
       createdAt: folder.createdAt,
     };
+  }
+
+  /**
+   * Rename a shared folder
+   */
+  async renameSharedFolder(
+    userId: string,
+    folderId: string,
+    dto: RenameFolderDto,
+  ) {
+    // Step 1: Validate user
+    // await this.validateUserExists(userId);
+
+    // Step 2: Find folder
+    const folder = await this.prisma.folderPermission.findUnique({
+      where: { id: folderId },
+    });
+
+    if (!folder || !folder.isShared) {
+      throw new FolderNotFoundError('Shared folder not found');
+    }
+
+    const folderName = PathResolverHelper.sanitizeFolderName(dto.newFolderName);
+    if (!folderName) {
+      throw new InvalidFolderPathError('Invalid folder name');
+    }
+
+    // Check for duplicate folder name under the same parent
+    const existing = await this.prisma.folderPermission.findFirst({
+      where: {
+        isShared: true,
+        folderName,
+        parentFolderId: folder.parentFolderId,
+        isDeleted: false,
+        NOT: { id: folder.id },
+      },
+    });
+    if (existing) {
+      throw new InvalidFolderPathError(
+        'A sibling shared folder with the same name already exists',
+      );
+    }
+    // Step 3: Update folder name
+    const updated = await this.prisma.folderPermission.update({
+      where: { id: folderId },
+      data: { folderName: dto.newFolderName },
+    });
+
+    // Step 4: Log audit entry
+    await this.prisma.fileAuditLog.create({
+      data: {
+        userId,
+        operation: 'RENAME',
+        objectKey: folderId,
+        status: 'SUCCESS',
+        details: `Shared folder renamed to: ${dto.newFolderName}`,
+      },
+    });
+
+    return updated;
   }
 
   /**

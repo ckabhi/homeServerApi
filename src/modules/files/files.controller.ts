@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Delete,
   Body,
   UseGuards,
   Req,
@@ -18,11 +19,17 @@ import { GenerateDownloadUrlDto } from './dto/generate-download-url.dto';
 import { ListFolderContentsDto } from './dto/list-folder-contents.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { RenameFileDto } from './dto/rename-file.dto';
+import { CreateFolderDto } from './dto/create-folder.dto';
+import { FolderService } from './services/folder.service';
+import { RenameFolderDto } from './dto/rename-folder.dto';
 
 @Controller('files')
 @UseGuards(JwtAuthGuard)
 export class FilesController {
-  constructor(private readonly filesService: FilesService) {}
+  constructor(
+    private readonly filesService: FilesService,
+    private readonly foldersService: FolderService,
+  ) {}
 
   private getUserId(
     req: Request & { user?: { id?: string; userId?: string } },
@@ -40,6 +47,19 @@ export class FilesController {
 
   private getUserAgent(req: Request): string | undefined {
     return req.get('user-agent') || undefined;
+  }
+
+  @Patch(':fileId/rename')
+  async renameFile(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Param('fileId') fileId: string,
+    @Body() dto: RenameFileDto,
+  ) {
+    return this.filesService.renameFile(
+      fileId,
+      this.getUserId(req),
+      dto.newDisplayName,
+    );
   }
 
   @Post('upload-url')
@@ -96,23 +116,63 @@ export class FilesController {
     );
   }
 
-  @Get('bucket-tree')
+  @Post('folders')
+  async createFolder(@Req() req: any, @Body() dto: CreateFolderDto) {
+    return this.foldersService.createFolder(this.getUserId(req), dto);
+  }
+
+  @Delete('folders/:folderId')
+  async deleteFolder(
+    @Req() req: any,
+    @Param('folderId') folderId: string,
+    @Query('force') force?: string,
+  ) {
+    return this.foldersService.deleteFolder(
+      this.getUserId(req),
+      folderId,
+      force === 'true',
+    );
+  }
+
+  @Patch('folders/:folderId/rename')
+  async renameFolder(
+    @Req() req: any,
+    @Param('folderId') folderId: string,
+    @Body() dto: RenameFolderDto,
+  ) {
+    return this.foldersService.renameFolder(this.getUserId(req), folderId, dto);
+  }
+  // Added by the AI
+  @Get('folder')
+  async listFolder(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Query() dto: ListFolderContentsDto,
+  ) {
+    return this.filesService.listFolderContents(
+      this.getUserId(req),
+      dto.folderPath ?? '',
+      dto,
+    );
+  }
+
+  @Get('folder/:folderPath')
+  async listFolderByPath(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Param('folderPath') folderPath: string,
+    @Query() dto: ListFolderContentsDto,
+  ) {
+    return this.filesService.listFolderContents(
+      this.getUserId(req),
+      decodeURIComponent(folderPath),
+      dto,
+    );
+  }
+
+  @Get('tree')
   async getBucketTree(
     @Req() req: Request & { user?: { id?: string; userId?: string } },
   ) {
-    return this.filesService.getBucketTree(this.getUserId(req));
-  }
-
-  @Patch(':fileId/rename')
-  async renameFile(
-    @Req() req: Request & { user?: { id?: string; userId?: string } },
-    @Param('fileId') fileId: string,
-    @Body() dto: RenameFileDto,
-  ) {
-    return this.filesService.renameFile(
-      fileId,
-      this.getUserId(req),
-      dto.newDisplayName,
-    );
+    // return this.filesService.getBucketTree(this.getUserId(req));
+    return this.foldersService.getFolderHierarchy(this.getUserId(req));
   }
 }

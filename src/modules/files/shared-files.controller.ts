@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Patch,
   Query,
   Req,
   UnauthorizedException,
@@ -17,6 +18,7 @@ import { UploadToSharedDto } from './dto/upload-to-shared.dto';
 import { CreateSharedFolderDto } from './dto/create-shared-folder.dto';
 import { GenerateDownloadUrlDto } from './dto/generate-download-url.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
+import { RenameFolderDto } from './dto/rename-folder.dto';
 
 @Controller('shared')
 export class SharedFilesController {
@@ -82,6 +84,20 @@ export class SharedFilesController {
   @UseGuards(JwtAuthGuard)
   async createFolder(@Body() dto: CreateSharedFolderDto) {
     return this.sharedFilesService.createSharedFolder(dto);
+  }
+
+  @Patch('folders/:folderId/rename')
+  @UseGuards(JwtAuthGuard)
+  async renameFolder(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Param('folderId') folderId: string,
+    @Body() dto: RenameFolderDto,
+  ) {
+    return this.sharedFilesService.renameSharedFolder(
+      this.getUserId(req),
+      folderId,
+      dto,
+    );
   }
 
   @Post('upload-complete')

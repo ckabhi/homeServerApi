@@ -172,12 +172,13 @@ export class FilesService {
       : await this.resolveParentFolderId(userId, resolvedFolderPath, isShared);
 
     // Step 3: Resolve display and system names
-    const displayName = await this.duplicateNameHelper.generateUniqueDisplayName(
-      userId,
-      dto.fileName,
-      parentFolderId,
-      isShared,
-    );
+    const displayName =
+      await this.duplicateNameHelper.generateUniqueDisplayName(
+        userId,
+        dto.fileName,
+        parentFolderId,
+        isShared,
+      );
     const systemFileName = PathResolverHelper.generateSystemFileName(
       dto.fileName,
     );
@@ -289,13 +290,9 @@ export class FilesService {
     const folderPath = session.folderPath || '';
     const parentFolderId = session.parentFolderId || null;
     const systemFileName =
-      session.systemFileName ||
-      dto.systemFileName ||
-      fallbackFileName;
+      session.systemFileName || dto.systemFileName || fallbackFileName;
     const displayName =
-      session.displayName ||
-      dto.displayName ||
-      fallbackFileName;
+      session.displayName || dto.displayName || fallbackFileName;
 
     const metadata = await this.prisma.fileMetadata.upsert({
       where: { objectKey: session.objectKey },
@@ -385,8 +382,8 @@ export class FilesService {
       throw new FileNotFoundError('File not found');
     }
 
-    // Step 3: Check ownership (unless shared file)
-    if (!file.isSharedFile && file.userId !== userId) {
+    // Step 3: Check strict ownership for user space
+    if (file.userId !== userId || file.isSharedFile) {
       throw new UnauthorizedAccessError('Unauthorized to access this file');
     }
 
@@ -432,6 +429,23 @@ export class FilesService {
     // Step 2: Validate folder path
     PathResolverHelper.validateFolderPath(folderPath);
 
+    // Step 2.1: Ensure non-root folder belongs to the authenticated user
+    if (folderPath) {
+      const folder = await this.prisma.folderPermission.findFirst({
+        where: {
+          userId,
+          folderPath,
+          isShared: false,
+          isDeleted: false,
+        },
+        select: { id: true },
+      });
+
+      if (!folder) {
+        throw new FolderNotFoundError('Folder not found');
+      }
+    }
+
     // Step 3: Get offset and limit
     const offset = dto.offset || 0;
     const limit = Math.min(dto.limit || 20, 100); // Max 100 items per page
@@ -441,6 +455,7 @@ export class FilesService {
       where: {
         userId,
         folderPath,
+        isSharedFile: false,
         isDeleted: false,
       },
       skip: offset,
@@ -468,6 +483,7 @@ export class FilesService {
       where: {
         userId,
         folderPath,
+        isSharedFile: false,
         isDeleted: false,
       },
     });
@@ -541,6 +557,7 @@ export class FilesService {
       throw new FileNotFoundError('File not found');
     }
 
+    // Shared files are open to authenticated users; enforce ownership only for personal files.
     if (!file.isSharedFile && file.userId !== userId) {
       throw new UnauthorizedAccessError('Unauthorized to rename this file');
     }
@@ -573,11 +590,14 @@ export class FilesService {
       },
     });
 
-    return updated;
+    return {
+      ...updated,
+      fileSize: updated.fileSize.toString(),
+    };
   }
 
   /**
-   * Get complete folder tree for user
+   * Get complete folder tree for user , ** Depricated **
    */
   async getBucketTree(userId: string) {
     // Validate user
