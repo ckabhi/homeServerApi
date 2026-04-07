@@ -9,10 +9,17 @@ import {
   InvalidFolderPathError,
 } from '../exceptions/file-errors';
 import { PathResolverHelper } from '../helpers/path-resolver.helper';
+import { RenameFolderDto } from '../dto/rename-folder.dto';
 
 @Injectable()
 export class FolderService {
   private readonly logger = new Logger(FolderService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => AuthService))
+    private readonly authService: AuthService,
+  ) {}
 
   private buildFolderTree(
     items: Array<{
@@ -49,12 +56,6 @@ export class FolderService {
         children: this.buildFolderTree(items, item.id),
       }));
   }
-
-  constructor(
-    private readonly prisma: PrismaService,
-    @Inject(forwardRef(() => AuthService))
-    private readonly authService: AuthService,
-  ) {}
 
   /**
    * Validate user exists
@@ -95,7 +96,7 @@ export class FolderService {
     } | null = null;
     if (resolvedParentFolderId) {
       parentFolder = await this.prisma.folderPermission.findUnique({
-        where: { id: resolvedParentFolderId },
+        where: { id: resolvedParentFolderId, userId },
         select: {
           userId: true,
           folderPath: true,
@@ -104,7 +105,7 @@ export class FolderService {
       });
       if (
         !parentFolder ||
-        parentFolder.userId !== userId ||
+        // parentFolder.userId !== userId ||
         parentFolder.isDeleted
       ) {
         throw new FolderNotFoundError(
@@ -168,7 +169,7 @@ export class FolderService {
   /**
    * Rename a folder and cascade update all nested items
    */
-  async renameFolder(userId: string, folderId: string, newName: string) {
+  async renameFolder(userId: string, folderId: string, dto: RenameFolderDto) {
     // Step 1: Validate user
     await this.validateUserExists(userId);
 
@@ -182,7 +183,9 @@ export class FolderService {
     }
 
     // Step 3: Validate new name
-    const sanitizedName = PathResolverHelper.sanitizeFolderName(newName);
+    const sanitizedName = PathResolverHelper.sanitizeFolderName(
+      dto.newFolderName,
+    );
     if (!sanitizedName) {
       throw new InvalidFolderPathError('Folder name is invalid');
     }
