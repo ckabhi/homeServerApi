@@ -62,6 +62,14 @@ export class FilesController {
     );
   }
 
+  @Delete(':fileId')
+  async deleteFile(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Param('fileId') fileId: string,
+  ) {
+    return this.filesService.deleteFile(this.getUserId(req), fileId);
+  }
+
   @Post('upload-url')
   async getUploadUrl(
     @Req() req: Request & { user?: { id?: string; userId?: string } },

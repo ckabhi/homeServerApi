@@ -596,6 +596,42 @@ export class FilesService {
     };
   }
 
+  async deleteFile(userId: string, fileId: string) {
+    await this.validateUserExists(userId);
+
+    const file = await this.prisma.fileMetadata.findUnique({
+      where: { id: fileId },
+    });
+
+    if (!file || file.isDeleted) {
+      throw new FileNotFoundError('File not found');
+    }
+
+    if (file.userId !== userId || file.isSharedFile) {
+      throw new UnauthorizedAccessError('Unauthorized to delete this file');
+    }
+
+    await this.prisma.fileMetadata.update({
+      where: { id: fileId },
+      data: {
+        isDeleted: true,
+        updatedAt: new Date(),
+      },
+    });
+
+    await this.prisma.fileAuditLog.create({
+      data: {
+        userId,
+        operation: 'DELETE',
+        objectKey: file.objectKey,
+        status: 'SUCCESS',
+        details: 'File marked as deleted',
+      },
+    });
+
+    return { success: true };
+  }
+
   /**
    * Get complete folder tree for user , ** Depricated **
    */
