@@ -106,6 +106,12 @@ model FileUploadSession {
   isRevoked    Boolean   @default(false)
   completedAt  DateTime?
 
+  // Multipart upload fields
+  uploadId     String?   // S3/MinIO multipart upload ID
+  isMultipart  Boolean   @default(false)
+  totalChunks  Int?
+  chunkSize    Int?
+
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

@@ -18,6 +18,9 @@ import { UploadToSharedDto } from './dto/upload-to-shared.dto';
 import { CreateSharedFolderDto } from './dto/create-shared-folder.dto';
 import { GenerateDownloadUrlDto } from './dto/generate-download-url.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
+import { InitMultipartUploadDto } from './dto/init-multipart-upload.dto';
+import { GetPartUrlsDto } from './dto/get-part-urls.dto';
+import { CompleteMultipartUploadDto } from './dto/complete-multipart-upload.dto';
 import { RenameFolderDto } from './dto/rename-folder.dto';
 
 @Controller('shared')
@@ -123,6 +126,53 @@ export class SharedFilesController {
     return this.sharedFilesService.deleteFromSharedFolder(
       this.getUserId(req),
       decodeURIComponent(objectKey),
+    );
+  }
+
+  // =============================================
+  // SHARED MULTIPART UPLOAD ENDPOINTS
+  // =============================================
+
+  @Post('multipart/init')
+  @UseGuards(JwtAuthGuard)
+  async initSharedMultipartUpload(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Body() dto: InitMultipartUploadDto,
+  ) {
+    return this.sharedFilesService.initSharedMultipartUpload(
+      this.getUserId(req),
+      dto,
+      this.getClientIp(req),
+    );
+  }
+
+  @Post('multipart/:uploadSessionId/urls')
+  @UseGuards(JwtAuthGuard)
+  async getSharedPartUrls(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Param('uploadSessionId') uploadSessionId: string,
+    @Body() dto: GetPartUrlsDto,
+  ) {
+    return this.sharedFilesService.generateSharedPartUrls(
+      this.getUserId(req),
+      uploadSessionId,
+      dto.partNumbers,
+    );
+  }
+
+  @Post('multipart/:uploadSessionId/complete')
+  @UseGuards(JwtAuthGuard)
+  async completeSharedMultipartUpload(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Param('uploadSessionId') uploadSessionId: string,
+    @Body() dto: CompleteMultipartUploadDto,
+  ) {
+    return this.sharedFilesService.completeSharedMultipartUpload(
+      this.getUserId(req),
+      uploadSessionId,
+      dto.parts,
+      this.getClientIp(req),
+      this.getUserAgent(req),
     );
   }
 }

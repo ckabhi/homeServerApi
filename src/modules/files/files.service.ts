@@ -12,6 +12,7 @@ import { GenerateUploadUrlDto } from './dto/generate-upload-url.dto';
 import { GenerateDownloadUrlDto } from './dto/generate-download-url.dto';
 import { ListFolderContentsDto } from './dto/list-folder-contents.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
+import { InitMultipartUploadDto } from './dto/init-multipart-upload.dto';
 import { v7 as uuidv7 } from 'uuid';
 import {
   FileNotFoundError,
@@ -20,6 +21,7 @@ import {
 } from './exceptions/file-errors';
 import { PathResolverHelper } from './helpers/path-resolver.helper';
 import { DuplicateNameHelper } from './helpers/duplicate-name.helper';
+import { calculateChunkSize } from './helpers/chunk-size.helper';
 
 @Injectable()
 export class FilesService {
@@ -783,5 +785,348 @@ export class FilesService {
     );
 
     return deletedFolders.count + deletedFiles.count;
+  }
+
+  // =============================================
+  // MULTIPART UPLOAD METHODS
+  // =============================================
+
+  /**
+   * Initialize a multipart upload session
+   */
+  async initMultipartUpload(
+    userId: string,
+    dto: InitMultipartUploadDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    await this.validateUserExists(userId);
+
+    const isShared = dto.isShared || false;
+    const resolvedFolderPath = await this.resolveUploadFolderPath(
+      userId,
+      dto.folderPath,
+      dto.parentFolderId,
+      isShared,
+    );
+
+    const parentFolderId = dto.parentFolderId
+      ? dto.parentFolderId
+      : await this.resolveParentFolderId(userId, resolvedFolderPath, isShared);
+
+    const displayName =
+      await this.duplicateNameHelper.generateUniqueDisplayName(
+        userId,
+        dto.fileName,
+        parentFolderId,
+        isShared,
+      );
+    const systemFileName = PathResolverHelper.generateSystemFileName(
+      dto.fileName,
+    );
+    const objectKey = PathResolverHelper.resolveObjectKeyFlat(
+      userId,
+      systemFileName,
+      isShared,
+    );
+
+    // Calculate dynamic chunk size
+    const { chunkSize, totalChunks } = calculateChunkSize(dto.fileSize);
+
+    // Initiate multipart upload in MinIO
+    const uploadId = await this.minioService.initiateMultipartUpload(objectKey);
+
+    const bucketName = this.minioService.getBucketName();
+    const expiresIn = 86400; // 24 hours
+
+    // Create upload session with multipart fields
+    const session = await this.prisma.fileUploadSession.create({
+      data: {
+        userId,
+        presignedUrl: '',
+        objectKey,
+        displayName,
+        systemFileName,
+        folderPath: resolvedFolderPath,
+        parentFolderId,
+        isSharedFile: isShared,
+        bucketName,
+        ipAddress,
+        userAgent,
+        expiresAt: new Date(Date.now() + expiresIn * 1000),
+        isMultipart: true,
+        uploadId,
+        totalChunks,
+        chunkSize,
+      },
+    });
+
+    await this.prisma.fileAuditLog.create({
+      data: {
+        userId,
+        operation: 'UPLOAD',
+        objectKey,
+        ipAddress,
+        userAgent,
+        status: 'SUCCESS',
+        details: `Multipart upload initiated for ${isShared ? 'shared' : 'user'} folder (${totalChunks} chunks)`,
+      },
+    });
+
+    return {
+      uploadSessionId: session.id,
+      uploadId,
+      objectKey,
+      displayName,
+      systemFileName,
+      folderPath: resolvedFolderPath,
+      parentFolderId,
+      chunkSize,
+      totalChunks,
+      expiresAt: session.expiresAt.toISOString(),
+    };
+  }
+
+  /**
+   * Generate presigned URLs for specific part numbers of a multipart upload
+   */
+  async generatePartUrls(
+    userId: string,
+    uploadSessionId: string,
+    partNumbers: number[],
+  ) {
+    await this.validateUserExists(userId);
+
+    const session = await this.prisma.fileUploadSession.findUnique({
+      where: { id: uploadSessionId },
+    });
+
+    if (!session || session.userId !== userId) {
+      throw new UnauthorizedAccessError('Upload session not found');
+    }
+
+    if (!session.isMultipart || !session.uploadId) {
+      throw new BadRequestException('Session is not a multipart upload');
+    }
+
+    if (session.isRevoked) {
+      throw new BadRequestException('Upload session is revoked');
+    }
+
+    if (session.isUsed) {
+      throw new BadRequestException('Upload session already completed');
+    }
+
+    if (session.expiresAt.getTime() < Date.now()) {
+      throw new BadRequestException('Upload session expired');
+    }
+
+    // Validate part numbers against totalChunks
+    if (session.totalChunks) {
+      const invalidParts = partNumbers.filter(
+        (p) => p < 1 || p > session.totalChunks!,
+      );
+      if (invalidParts.length > 0) {
+        throw new BadRequestException(
+          `Invalid part numbers: ${invalidParts.join(', ')}. Must be between 1 and ${session.totalChunks}`,
+        );
+      }
+    }
+
+    const expiresIn = 86400; // 24 hours
+    const urls = await Promise.all(
+      partNumbers.map(async (partNumber) => {
+        const url = await this.minioService.generatePresignedUrlForPart(
+          session.objectKey,
+          session.uploadId!,
+          partNumber,
+          expiresIn,
+        );
+        return { partNumber, url };
+      }),
+    );
+
+    return { urls };
+  }
+
+  /**
+   * Complete a multipart upload by assembling all parts in MinIO
+   */
+  async completeMultipartUpload(
+    userId: string,
+    uploadSessionId: string,
+    parts: { partNumber: number; etag: string }[],
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    await this.validateUserExists(userId);
+
+    const session = await this.prisma.fileUploadSession.findUnique({
+      where: { id: uploadSessionId },
+    });
+
+    if (!session || session.userId !== userId) {
+      throw new UnauthorizedAccessError('Upload session not found');
+    }
+
+    if (!session.isMultipart || !session.uploadId) {
+      throw new BadRequestException('Session is not a multipart upload');
+    }
+
+    if (session.isRevoked) {
+      throw new BadRequestException('Upload session is revoked');
+    }
+
+    if (session.isUsed) {
+      throw new BadRequestException('Upload session already completed');
+    }
+
+    if (session.expiresAt.getTime() < Date.now()) {
+      throw new BadRequestException('Upload session expired');
+    }
+
+    // Assemble chunks in MinIO
+    const minioParts = parts
+      .sort((a, b) => a.partNumber - b.partNumber)
+      .map((p) => ({ part: p.partNumber, etag: p.etag }));
+
+    await this.minioService.completeMultipartUpload(
+      session.objectKey,
+      session.uploadId,
+      minioParts,
+    );
+
+    // Persist metadata via existing pattern
+    const objectStat = await this.minioService.statObject(session.objectKey);
+    const pathSegments = session.objectKey.split('/');
+    const fallbackFileName = pathSegments[pathSegments.length - 1];
+    const isSharedFile = session.isSharedFile;
+    const folderPath = session.folderPath || '';
+    const parentFolderId = session.parentFolderId || null;
+    const systemFileName = session.systemFileName || fallbackFileName;
+    const displayName = session.displayName || fallbackFileName;
+
+    const metadata = await this.prisma.fileMetadata.upsert({
+      where: { objectKey: session.objectKey },
+      create: {
+        userId,
+        fileName: displayName,
+        displayName,
+        systemFileName,
+        objectKey: session.objectKey,
+        bucketName: session.bucketName,
+        fileSize: BigInt(objectStat.size),
+        mimeType: objectStat.contentType || 'application/octet-stream',
+        folderPath,
+        parentFolderId,
+        isSharedFile,
+        isDeleted: false,
+      },
+      update: {
+        userId,
+        fileName: displayName,
+        displayName,
+        systemFileName,
+        bucketName: session.bucketName,
+        fileSize: BigInt(objectStat.size),
+        mimeType: objectStat.contentType || 'application/octet-stream',
+        folderPath,
+        parentFolderId,
+        isSharedFile,
+        isDeleted: false,
+        updatedAt: new Date(),
+      },
+    });
+
+    await this.prisma.fileUploadSession.update({
+      where: { id: session.id },
+      data: {
+        isUsed: true,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    await this.prisma.fileAuditLog.create({
+      data: {
+        userId,
+        operation: 'UPLOAD',
+        objectKey: session.objectKey,
+        ipAddress,
+        userAgent,
+        status: 'SUCCESS',
+        details: 'Multipart upload completed and metadata persisted',
+      },
+    });
+
+    return {
+      fileId: metadata.id,
+      fileName: metadata.fileName,
+      displayName: metadata.displayName,
+      systemFileName: metadata.systemFileName,
+      objectKey: metadata.objectKey,
+      folderPath: metadata.folderPath,
+      isSharedFile: metadata.isSharedFile,
+      fileSize: metadata.fileSize.toString(),
+      mimeType: metadata.mimeType,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Abort a multipart upload session
+   */
+  async abortMultipartUpload(
+    userId: string,
+    uploadSessionId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    await this.validateUserExists(userId);
+
+    const session = await this.prisma.fileUploadSession.findUnique({
+      where: { id: uploadSessionId },
+    });
+
+    if (!session || session.userId !== userId) {
+      throw new UnauthorizedAccessError('Upload session not found');
+    }
+
+    if (!session.isMultipart || !session.uploadId) {
+      throw new BadRequestException('Session is not a multipart upload');
+    }
+
+    if (session.isUsed) {
+      throw new BadRequestException('Upload session already completed');
+    }
+
+    // Abort in MinIO
+    await this.minioService.abortMultipartUpload(
+      session.objectKey,
+      session.uploadId,
+    );
+
+    // Revoke the session
+    await this.prisma.fileUploadSession.update({
+      where: { id: session.id },
+      data: {
+        isRevoked: true,
+        updatedAt: new Date(),
+      },
+    });
+
+    await this.prisma.fileAuditLog.create({
+      data: {
+        userId,
+        operation: 'UPLOAD',
+        objectKey: session.objectKey,
+        ipAddress,
+        userAgent,
+        status: 'SUCCESS',
+        details: 'Multipart upload aborted',
+      },
+    });
+
+    return { success: true, message: 'Multipart upload aborted' };
   }
 }

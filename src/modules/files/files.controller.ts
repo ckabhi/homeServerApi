@@ -18,6 +18,9 @@ import { GenerateUploadUrlDto } from './dto/generate-upload-url.dto';
 import { GenerateDownloadUrlDto } from './dto/generate-download-url.dto';
 import { ListFolderContentsDto } from './dto/list-folder-contents.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
+import { InitMultipartUploadDto } from './dto/init-multipart-upload.dto';
+import { GetPartUrlsDto } from './dto/get-part-urls.dto';
+import { CompleteMultipartUploadDto } from './dto/complete-multipart-upload.dto';
 import { RenameFileDto } from './dto/rename-file.dto';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { FolderService } from './services/folder.service';
@@ -182,5 +185,63 @@ export class FilesController {
   ) {
     // return this.filesService.getBucketTree(this.getUserId(req));
     return this.foldersService.getFolderHierarchy(this.getUserId(req));
+  }
+
+  // =============================================
+  // MULTIPART UPLOAD ENDPOINTS
+  // =============================================
+
+  @Post('multipart/init')
+  async initMultipartUpload(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Body() dto: InitMultipartUploadDto,
+  ) {
+    return this.filesService.initMultipartUpload(
+      this.getUserId(req),
+      dto,
+      this.getClientIp(req),
+      this.getUserAgent(req),
+    );
+  }
+
+  @Post('multipart/:uploadSessionId/urls')
+  async getPartUrls(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Param('uploadSessionId') uploadSessionId: string,
+    @Body() dto: GetPartUrlsDto,
+  ) {
+    return this.filesService.generatePartUrls(
+      this.getUserId(req),
+      uploadSessionId,
+      dto.partNumbers,
+    );
+  }
+
+  @Post('multipart/:uploadSessionId/complete')
+  async completeMultipartUpload(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Param('uploadSessionId') uploadSessionId: string,
+    @Body() dto: CompleteMultipartUploadDto,
+  ) {
+    return this.filesService.completeMultipartUpload(
+      this.getUserId(req),
+      uploadSessionId,
+      dto.parts,
+      this.getClientIp(req),
+      this.getUserAgent(req),
+    );
+  }
+
+  @Delete('multipart/:uploadSessionId/abort')
+  async abortMultipartUpload(
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+    @Param('uploadSessionId') uploadSessionId: string,
+  ) {
+    return this.filesService.abortMultipartUpload(
+      this.getUserId(req),
+      uploadSessionId,
+      this.getClientIp(req),
+      this.getUserAgent(req),
+    );
   }
 }

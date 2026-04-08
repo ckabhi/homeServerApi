@@ -148,6 +148,99 @@ export class MinioService implements OnModuleInit {
     }
   }
 
+  /**
+   * Initiate a new S3 multipart upload and return the uploadId
+   */
+  async initiateMultipartUpload(objectKey: string): Promise<string> {
+    try {
+      const uploadId = await (
+        this.minioClient as any
+      ).initiateNewMultipartUpload(this.defaultBucket, objectKey, {});
+      return uploadId as string;
+    } catch (error) {
+      this.logger.error(
+        `Failed to initiate multipart upload for ${objectKey}`,
+        error,
+      );
+      throw new MinIOConnectionError('Failed to initiate multipart upload');
+    }
+  }
+
+  /**
+   * Generate a presigned URL for uploading a specific part of a multipart upload
+   */
+  async generatePresignedUrlForPart(
+    objectKey: string,
+    uploadId: string,
+    partNumber: number,
+    expirySeconds: number = 86400,
+  ): Promise<string> {
+    try {
+      const url = await this.minioClient.presignedUrl(
+        'PUT',
+        this.defaultBucket,
+        objectKey,
+        expirySeconds,
+        { uploadId, partNumber: partNumber.toString() },
+      );
+      return url;
+    } catch (error) {
+      this.logger.error(
+        `Failed to generate presigned URL for part ${partNumber} of ${objectKey}`,
+        error,
+      );
+      throw new MinIOConnectionError(
+        'Failed to generate presigned URL for part upload',
+      );
+    }
+  }
+
+  /**
+   * Complete a multipart upload by assembling all parts
+   */
+  async completeMultipartUpload(
+    objectKey: string,
+    uploadId: string,
+    parts: { part: number; etag: string }[],
+  ): Promise<void> {
+    try {
+      await (this.minioClient as any).completeMultipartUpload(
+        this.defaultBucket,
+        objectKey,
+        uploadId,
+        parts,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to complete multipart upload for ${objectKey}`,
+        error,
+      );
+      throw new MinIOConnectionError('Failed to complete multipart upload');
+    }
+  }
+
+  /**
+   * Abort an in-progress multipart upload
+   */
+  async abortMultipartUpload(
+    objectKey: string,
+    uploadId: string,
+  ): Promise<void> {
+    try {
+      await (this.minioClient as any).abortMultipartUpload(
+        this.defaultBucket,
+        objectKey,
+        uploadId,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to abort multipart upload for ${objectKey}`,
+        error,
+      );
+      throw new MinIOConnectionError('Failed to abort multipart upload');
+    }
+  }
+
   private escapeFileName(fileName: string): string {
     return fileName.replace(/"/g, '\\"');
   }

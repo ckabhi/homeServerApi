@@ -14,6 +14,7 @@ import {
 import { PathResolverHelper } from '../helpers/path-resolver.helper';
 import { DuplicateNameHelper } from '../helpers/duplicate-name.helper';
 import { RenameFolderDto } from '../dto/rename-folder.dto';
+import { calculateChunkSize } from '../helpers/chunk-size.helper';
 
 interface SharedTreeNode {
   id: string;
@@ -496,6 +497,156 @@ export class SharedFilesService {
       expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
       displayName: file.displayName,
     };
+  }
+
+  /**
+   * Initialize a multipart upload to a shared folder
+   */
+  async initSharedMultipartUpload(
+    userId: string,
+    dto: {
+      fileName: string;
+      folderPath?: string;
+      mimeType: string;
+      fileSize: number;
+    },
+    ipAddress?: string,
+  ) {
+    await this.validateUserExists(userId);
+
+    const resolvedFolderPath = dto.folderPath
+      ? dto.folderPath
+          .trim()
+          .replace(/\\/g, '/')
+          .replace(/\/{2,}/g, '/')
+          .replace(/^\/+|\/+$/g, '')
+      : '';
+    PathResolverHelper.validateFolderPath(resolvedFolderPath);
+
+    let parentFolderId: string | null = null;
+    if (resolvedFolderPath) {
+      const folder = await this.prisma.folderPermission.findFirst({
+        where: {
+          isShared: true,
+          folderPath: resolvedFolderPath,
+          isDeleted: false,
+        },
+        select: { id: true },
+      });
+      if (!folder) {
+        throw new FolderNotFoundError('Target shared folder does not exist');
+      }
+      parentFolderId = folder.id;
+    }
+
+    const displayName =
+      await this.duplicateNameHelper.generateUniqueDisplayName(
+        userId,
+        dto.fileName,
+        parentFolderId,
+        true,
+      );
+    const systemFileName = PathResolverHelper.generateSystemFileName(
+      dto.fileName,
+    );
+    const objectKey = PathResolverHelper.resolveObjectKeyFlat(
+      userId,
+      systemFileName,
+      true,
+    );
+
+    const { chunkSize, totalChunks } = calculateChunkSize(dto.fileSize);
+
+    const uploadId = await this.minioService.initiateMultipartUpload(objectKey);
+
+    const bucketName = this.minioService.getBucketName();
+    const expiresIn = 86400;
+
+    const session = await this.prisma.fileUploadSession.create({
+      data: {
+        userId,
+        presignedUrl: '',
+        objectKey,
+        displayName,
+        systemFileName,
+        folderPath: resolvedFolderPath,
+        parentFolderId,
+        isSharedFile: true,
+        bucketName,
+        ipAddress,
+        expiresAt: new Date(Date.now() + expiresIn * 1000),
+        isMultipart: true,
+        uploadId,
+        totalChunks,
+        chunkSize,
+      },
+    });
+
+    await this.prisma.fileAuditLog.create({
+      data: {
+        userId,
+        operation: 'UPLOAD',
+        objectKey,
+        ipAddress,
+        status: 'SUCCESS',
+        details: `Shared multipart upload initiated (${totalChunks} chunks)`,
+      },
+    });
+
+    return {
+      uploadSessionId: session.id,
+      uploadId,
+      objectKey,
+      displayName,
+      systemFileName,
+      folderPath: resolvedFolderPath,
+      parentFolderId,
+      chunkSize,
+      totalChunks,
+      expiresAt: session.expiresAt.toISOString(),
+    };
+  }
+
+  /**
+   * Generate presigned URLs for shared multipart upload parts
+   */
+  async generateSharedPartUrls(
+    userId: string,
+    uploadSessionId: string,
+    partNumbers: number[],
+  ) {
+    return this.filesService.generatePartUrls(
+      userId,
+      uploadSessionId,
+      partNumbers,
+    );
+  }
+
+  /**
+   * Complete a shared multipart upload
+   */
+  async completeSharedMultipartUpload(
+    userId: string,
+    uploadSessionId: string,
+    parts: { partNumber: number; etag: string }[],
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    const result = await this.filesService.completeMultipartUpload(
+      userId,
+      uploadSessionId,
+      parts,
+      ipAddress,
+      userAgent,
+    );
+
+    if (!result.isSharedFile) {
+      throw new InvalidFolderPathError(
+        'Upload session is not associated with shared space',
+      );
+    }
+
+    return result;
   }
 
   /**
