@@ -1,5 +1,8 @@
 # --- Build Stage ---
 FROM node:25.9.0-alpine3.22 AS builder
+
+# Install openssl for Prisma
+RUN apk add --no-cache openssl
 WORKDIR /app
 COPY package*.json ./
 # Use 'npm ci' for deterministic, faster, and more secure installs
@@ -10,6 +13,10 @@ RUN npm run build
 
 # --- Production Stage ---
 FROM node:25.9.0-alpine3.22
+
+# Install openssl for Prisma
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 # 1. Update OS packages
@@ -28,4 +35,4 @@ RUN npm prune --production
 USER node
 
 EXPOSE 3000
-CMD ["npm", "run", "start:prod"]
+CMD npx prisma migrate deploy && node dist/src/main

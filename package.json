@@ -11,7 +11,7 @@
     "start": "npx prisma migrate deploy && nest start",
     "start:dev": "npx prisma migrate deploy && nest start --watch",
     "start:debug": "npx prisma migrate deploy && nest start --debug --watch",
-    "start:prod": "npx prisma migrate deploy && node dist/main",
+    "start:prod": "npx prisma migrate deploy && node dist/src/main",
     "migrate": "npx prisma migrate deploy",
     "migrate:dev": "npx prisma migrate dev",
     "migrate:generate": "npx prisma generate",
