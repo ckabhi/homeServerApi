@@ -9,6 +9,8 @@ services:
       MYSQL_DATABASE: home_app
     ports:
       - '3306:3306'
+    networks:
+      - server-network
     volumes:
       - mysql_data:/var/lib/mysql
 
@@ -22,6 +24,8 @@ services:
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: password
+    networks:
+      - server-network
     volumes:
       # Maps your internal SSD folder to the container's data folder
       - /var/lib/minio:/data
@@ -30,3 +34,6 @@ services:
 
 volumes:
   mysql_data:
+networks:
+  server-network:
+    name: server-network

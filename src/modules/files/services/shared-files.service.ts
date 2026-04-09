@@ -1,4 +1,5 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio.service';
 import { AuthService } from '../../authentication/auth.service';
@@ -15,6 +16,7 @@ import { PathResolverHelper } from '../helpers/path-resolver.helper';
 import { DuplicateNameHelper } from '../helpers/duplicate-name.helper';
 import { RenameFolderDto } from '../dto/rename-folder.dto';
 import { calculateChunkSize } from '../helpers/chunk-size.helper';
+import ms, { StringValue } from 'ms';
 
 interface SharedTreeNode {
   id: string;
@@ -35,6 +37,7 @@ export class SharedFilesService {
     private readonly duplicateNameHelper: DuplicateNameHelper,
     @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
+    private readonly configService: ConfigService,
   ) {}
 
   private buildSharedTree(
@@ -131,7 +134,7 @@ export class SharedFilesService {
     );
 
     // Step 4: Generate presigned URL
-    const expiresIn = dto.expiresIn || 3600; // 1 hour for shared uploads
+    const expiresIn = dto.expiresIn || 300; // 1 hour for shared uploads
     const url = await this.minioService.generatePresignedUrl(
       'PUT',
       objectKey,
@@ -473,7 +476,9 @@ export class SharedFilesService {
     }
 
     // Step 2: Generate presigned GET URL
-    const expiresIn = 3600; // 1 hour
+    const expiresIn =
+      ms(this.configService.get<StringValue>('SIGNED_URL_EXPIRATION', '5m')) /
+      1000; // Convert to seconds
     const url = await this.minioService.generatePresignedDownloadUrl(
       objectKey,
       file.displayName,
@@ -560,7 +565,9 @@ export class SharedFilesService {
     const uploadId = await this.minioService.initiateMultipartUpload(objectKey);
 
     const bucketName = this.minioService.getBucketName();
-    const expiresIn = 86400;
+    const expiresIn =
+      ms(this.configService.get<StringValue>('SIGNED_URL_EXPIRATION', '5m')) /
+      1000; // Convert to seconds
 
     const session = await this.prisma.fileUploadSession.create({
       data: {
