@@ -9,7 +9,7 @@ services:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: home_app
     ports:
-      - "3306:3306"
+      - '3306:3306'
     volumes:
       - mysql_data:/var/lib/mysql
 
@@ -25,11 +25,21 @@ services:
       JWT_EXPIRATION: 15m
       JWT_REFRESH_SECRET: super-secret-refresh-key
       JWT_REFRESH_EXPIRATION: 7d
+      CORS_ALLOWED_LISTS: http://localhost:3000,http://localhost:5173
+      CORS_METHODS: GET,HEAD,PUT,PATCH,POST,DELETE
+      ENABLE_API_DOCS: 'true'
+      MINIO_ENDPOINT: localhost
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: 'false'
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: password
+      SIGNED_URL_EXPIRATION: 1h
     ports:
-      - "3000:3000"
+      - '3000:3000'
     depends_on:
       - mysql
-    command: sh -c "npx prisma generate && npx prisma db push && npm run start:prod"
+      - minio
+    # command: sh -c "npx prisma generate && npx prisma db push && npm run start:prod"
 
 volumes:
   mysql_data:

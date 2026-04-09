@@ -8,6 +8,8 @@ COPY package*.json ./
 # Use 'npm ci' for deterministic, faster, and more secure installs
 RUN npm ci 
 COPY . .
+ENV PRISMA_CLI_BINARY_TARGETS=linux-arm64-openssl-3.0.x
+
 RUN npx prisma generate
 RUN npm run build
 
@@ -27,10 +29,12 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./ 
 
 # 3. Remove dev dependencies
-RUN npm prune --production
+RUN npm prune --omit=dev
 
+RUN chown -R node:node /app
 # 4. Run as non-root user
 USER node
 
