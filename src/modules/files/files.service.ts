@@ -5,6 +5,7 @@ import {
   forwardRef,
   BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { MinioService } from './minio.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../authentication/auth.service';
@@ -22,6 +23,7 @@ import {
 import { PathResolverHelper } from './helpers/path-resolver.helper';
 import { DuplicateNameHelper } from './helpers/duplicate-name.helper';
 import { calculateChunkSize } from './helpers/chunk-size.helper';
+import ms, { StringValue } from 'ms';
 
 @Injectable()
 export class FilesService {
@@ -33,6 +35,7 @@ export class FilesService {
     @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
     private readonly duplicateNameHelper: DuplicateNameHelper,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -197,7 +200,7 @@ export class FilesService {
 
     // Step 4: Generate presigned URL
     const bucketName = this.minioService.getBucketName();
-    const expiresIn = dto.expiresIn || 86400; // 24 hours default
+    const expiresIn = dto.expiresIn || 300; // 5min by default
     const url = await this.minioService.generatePresignedUrl(
       'PUT',
       objectKey,
@@ -390,7 +393,7 @@ export class FilesService {
     }
 
     // Step 4: Generate presigned GET URL
-    const expiresIn = dto.expiresIn || 3600; // 1 hour default
+    const expiresIn = dto.expiresIn || 300; // 1 hour default
     const url = await this.minioService.generatePresignedDownloadUrl(
       file.objectKey,
       file.displayName,
@@ -837,7 +840,9 @@ export class FilesService {
     const uploadId = await this.minioService.initiateMultipartUpload(objectKey);
 
     const bucketName = this.minioService.getBucketName();
-    const expiresIn = 86400; // 24 hours
+    const expiresIn =
+      ms(this.configService.get<StringValue>('SIGNED_URL_EXPIRATION', '5m')) /
+      1000; // Convert to seconds
 
     // Create upload session with multipart fields
     const session = await this.prisma.fileUploadSession.create({
@@ -933,7 +938,9 @@ export class FilesService {
       }
     }
 
-    const expiresIn = 86400; // 24 hours
+    const expiresIn =
+      ms(this.configService.get<StringValue>('SIGNED_URL_EXPIRATION', '5m')) /
+      1000; // Convert to seconds
     const urls = await Promise.all(
       partNumbers.map(async (partNumber) => {
         const url = await this.minioService.generatePresignedUrlForPart(

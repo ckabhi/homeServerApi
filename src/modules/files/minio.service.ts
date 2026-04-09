@@ -21,13 +21,10 @@ export class MinioService implements OnModuleInit {
         ),
         useSSL:
           this.configService.get<string>('MINIO_USE_SSL', 'false') === 'true',
-        accessKey: this.configService.get<string>(
-          'MINIO_ACCESS_KEY',
-          'minioadmin',
-        ),
+        accessKey: this.configService.get<string>('MINIO_ACCESS_KEY', 'admin'),
         secretKey: this.configService.get<string>(
           'MINIO_SECRET_KEY',
-          'minioadmin',
+          'password',
         ),
       });
 
