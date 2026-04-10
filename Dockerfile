@@ -10,7 +10,7 @@ RUN npm ci
 COPY prisma ./prisma/
 COPY prisma.config.ts ./ 
 
-ENV DATABASE_URL="mysql://dummy:dummy@localhost:3306/db"
+# ENV DATABASE_URL="mysql://dummy:dummy@localhost:3306/db"
 ENV PRISMA_CLI_BINARY_TARGETS=linux-musl-arm64-openssl-3.0.x
 
 RUN npx prisma generate
