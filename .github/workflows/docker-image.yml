@@ -2,7 +2,8 @@ name: Build and Push ARM64 Image
 
 on:
   push:
-    branches: ['main']
+    # branches: ['main']
+    tags: ['v*.*.*'] # Trigger on version tags like v1.0.0
 
 env:
   REGISTRY: ghcr.io
@@ -39,11 +40,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          ags: |
-            # This is your "stable" pointer for your Pi to pull
-            type=raw,value=arm64-latest
-            # This creates a unique version for every single push (e.g. arm64-8a3f2b)
-            type=sha,prefix=arm64-,format=short
+          flavor: |
+            latest=false
+          tags: |
+            # When you push v1.0, this makes it the new 'latest'
+            type=raw,value=latest
+            # This creates the '1.0' tag
+            type=semver,pattern={{version}}
 
       # 3. Build and push specifically for ARM64
       - name: Build and push Docker image
