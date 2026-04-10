@@ -12,7 +12,8 @@ env:
 jobs:
   build-and-push:
     # It checks if the tag being pushed is actually part of the 'main' branch history
-    if: github.ref_type == 'tag' && github.event.base_ref == 'refs/heads/main'
+    # if: github.ref_type == 'tag' && github.event.base_ref == 'refs/heads/main'
+    if: contains(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -21,6 +22,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Fetch 50 commits: fast, but enough to verify branch history
+          fetch-depth: 200
+
+      - name: Verify tag is on main branch
+        run: |
+          # 1. Fetch the remote main so we have something to compare against
+          git fetch origin main
+
+          # 2. Extract the tag name for your error message
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+
+          # 3. Use the SHA of the tag to check its history against main
+          if ! git merge-base --is-ancestor ${{ github.sha }} origin/main; then
+            echo "Error: Tag $TAG_NAME is not on the main branch history."
+            exit 1
+          fi
+          echo "Success: Tag $TAG_NAME is verified on main."
 
       # 1. Set up QEMU for ARM64 emulation
       - name: Set up QEMU
