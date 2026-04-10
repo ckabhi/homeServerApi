@@ -11,6 +11,8 @@ env:
 
 jobs:
   build-and-push:
+    # It checks if the tag being pushed is actually part of the 'main' branch history
+    if: github.ref_type == 'tag' && github.event.base_ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,9 +46,9 @@ jobs:
             latest=false
           tags: |
             # When you push v1.0, this makes it the new 'latest'
-            type=raw,value=latest
+            type=raw,value=arm64-latest
             # This creates the '1.0' tag
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},prefix=arm64-
 
       # 3. Build and push specifically for ARM64
       - name: Build and push Docker image
