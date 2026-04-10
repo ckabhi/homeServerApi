@@ -1,5 +1,5 @@
 # --- Build Stage ---
-FROM node:25.9.0-alpine3.22 AS builder
+FROM node:22-alpine3.23 AS builder
 
 # Install openssl for Prisma
 RUN apk add --no-cache openssl libc6-compat gcompat
@@ -19,7 +19,7 @@ COPY . .
 RUN npm run build
 
 # --- Production Stage ---
-FROM node:25.9.0-alpine3.22
+FROM node:22-alpine3.23
 
 # Install openssl for Prisma
 RUN apk add --no-cache openssl libc6-compat gcompat
