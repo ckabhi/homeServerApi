@@ -2,7 +2,7 @@
 FROM node:25.9.0-alpine3.22 AS builder
 
 # Install openssl for Prisma
-RUN apk add --no-cache openssl libc6-compat
+RUN apk add --no-cache openssl libc6-compat gcompat
 WORKDIR /app
 COPY package*.json ./
 # Use 'npm ci' for deterministic, faster, and more secure installs
@@ -22,7 +22,7 @@ RUN npm run build
 FROM node:25.9.0-alpine3.22
 
 # Install openssl for Prisma
-RUN apk add --no-cache openssl libc6-compat
+RUN apk add --no-cache openssl libc6-compat gcompat
 
 WORKDIR /app
 
