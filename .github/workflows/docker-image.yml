@@ -63,12 +63,12 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           flavor: |
             latest=false
-            prefix=arm64-
+            # prefix=arm64-
           tags: |
             # When you push v1.0, this makes it the new 'latest'
             type=raw,value=latest
             # This creates the '1.0' tag
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},prefix=arm64-
 
       # 3. Build and push specifically for ARM64
       - name: Build and push Docker image
