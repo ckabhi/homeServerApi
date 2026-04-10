@@ -6,11 +6,16 @@ RUN apk add --no-cache openssl libc6-compat
 WORKDIR /app
 COPY package*.json ./
 # Use 'npm ci' for deterministic, faster, and more secure installs
-RUN npm ci 
-COPY . .
+RUN npm ci
+COPY prisma ./prisma/
+COPY prisma.config.ts ./ 
+
+ENV DATABASE_URL="mysql://dummy:dummy@localhost:3306/db"
 ENV PRISMA_CLI_BINARY_TARGETS=linux-musl-arm64-openssl-3.0.x
 
-RUN npx prisma generate
+RUN npx prisma generate --verbose
+
+COPY . .
 RUN npm run build
 
 # --- Production Stage ---
