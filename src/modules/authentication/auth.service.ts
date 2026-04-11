@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,6 +24,11 @@ export class AuthService {
   ) {}
 
   async signup(dto: SignupDto) {
+    const isSignupEnabled =
+      this.configService.get<string>('AUTH_SIGNUP_ENABLED', 'false') === 'true';
+    if (!isSignupEnabled) {
+      throw new ServiceUnavailableException('Signup is disabled');
+    }
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });

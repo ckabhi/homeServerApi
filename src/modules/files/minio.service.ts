@@ -11,19 +11,6 @@ export class MinioService implements OnModuleInit {
 
   constructor(private readonly configService: ConfigService) {}
 
-  private getPublicUrl = (url: string): string => {
-    const endpoint = this.configService.get<string>(
-      'MINIO_ENDPOINT',
-      'localhost',
-    );
-    const port = this.configService.get<string>('MINIO_PORT', '9000');
-    const publicEndpoint = this.configService.get<string>(
-      'MINIO_SIGNED_URL_ENDPOINT',
-      'localhost:9000',
-    );
-    return url.replace(`http://${endpoint}:${port}`, publicEndpoint);
-  };
-
   async onModuleInit() {
     try {
       this.minioClient = new Minio.Client({
@@ -260,4 +247,17 @@ export class MinioService implements OnModuleInit {
   private escapeFileName(fileName: string): string {
     return fileName.replace(/"/g, '\\"');
   }
+
+  private getPublicUrl = (url: string): string => {
+    const minIoEndpoint = this.configService.get<string>(
+      'MINIO_ENDPOINT',
+      'localhost',
+    );
+    const port = this.configService.get<string>('MINIO_PORT', '9000');
+    const publicEndpoint = this.configService.get<string>(
+      'MINIO_SIGNED_URL_ENDPOINT',
+      'localhost:9000',
+    );
+    return url.replace(`http://${minIoEndpoint}:${port}`, publicEndpoint);
+  };
 }
