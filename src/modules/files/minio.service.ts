@@ -6,6 +6,7 @@ import { MinIOConnectionError } from './exceptions/file-errors';
 @Injectable()
 export class MinioService implements OnModuleInit {
   private minioClient!: Minio.Client;
+  private minioSignedUrlClient!: Minio.Client;
   private readonly logger = new Logger(MinioService.name);
   private readonly defaultBucket = 'app-bucket-xtvnlqt';
 
@@ -33,6 +34,31 @@ export class MinioService implements OnModuleInit {
         await this.minioClient.makeBucket(this.defaultBucket, 'us-east-1');
       }
       this.logger.log('MinIO client initialized successfully');
+
+      // Minio client for signed URL generation must be initialized before checking bucket existence
+      // this will not get connected to minio server.
+      this.minioSignedUrlClient = new Minio.Client({
+        endPoint: this.configService.get<string>(
+          'MINIO_SIGNED_URL_ENDPOINT',
+          'localhost',
+        ),
+        port: parseInt(
+          this.configService.get<string>('MINIO_SIGNED_URL_PORT', '9000'),
+          10,
+        ),
+        useSSL:
+          this.configService.get<string>(
+            'MINIO_SIGNED_URL_USE_SSL',
+            'false',
+          ) === 'true',
+        accessKey: this.configService.get<string>('MINIO_ACCESS_KEY', 'admin'),
+        secretKey: this.configService.get<string>(
+          'MINIO_SECRET_KEY',
+          'password',
+        ),
+      });
+
+      this.logger.log('MinIO signed URL client initialized successfully');
     } catch (error) {
       this.logger.error('Failed to initialize MinIO client', error);
       throw new MinIOConnectionError('Could not connect to storage service');
@@ -50,13 +76,13 @@ export class MinioService implements OnModuleInit {
   ): Promise<string> {
     try {
       if (method === 'GET') {
-        return await this.minioClient.presignedGetObject(
+        return await this.minioSignedUrlClient.presignedGetObject(
           this.defaultBucket,
           objectKey,
           expirySeconds,
         );
       } else {
-        return await this.minioClient.presignedPutObject(
+        return await this.minioSignedUrlClient.presignedPutObject(
           this.defaultBucket,
           objectKey,
           expirySeconds,
@@ -82,7 +108,7 @@ export class MinioService implements OnModuleInit {
         'response-content-type': 'application/octet-stream',
       };
 
-      return await this.minioClient.presignedGetObject(
+      return await this.minioSignedUrlClient.presignedGetObject(
         this.defaultBucket,
         objectKey,
         expirySeconds,
@@ -173,7 +199,7 @@ export class MinioService implements OnModuleInit {
     expirySeconds: number = 86400,
   ): Promise<string> {
     try {
-      const url = await this.minioClient.presignedUrl(
+      const url = await this.minioSignedUrlClient.presignedUrl(
         'PUT',
         this.defaultBucket,
         objectKey,
